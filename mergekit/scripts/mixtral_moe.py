@@ -323,13 +323,15 @@ def build(
     logging.info("Copying parameters...")
     MISTRAL_INFO = mergekit.architecture.MISTRAL_INFO
     for tensor_name in MISTRAL_INFO.pre_weight_names + MISTRAL_INFO.post_weight_names:
-        tensor = base_loader.get_tensor(tensor_name)
-        if not out_dtype:
-            # All else has failed, take the first dtype we see
-            out_dtype = tensor.dtype
-        writer.save_tensor(
-            tensor_name, tensor.to(dtype=out_dtype), clone=merge_options.clone_tensors
-        )
+        tensors = []
+        for expert in config.experts:
+            expert_loader = loaders.get(expert.model_ref)
+            tensor = expert_loader.get_tensor(tensor_name)
+            if expert.noise_scale:
+                tensor += torch.randn_like(tensor) * expert.noise_scale
+            tensors.append(tensor)
+        avg_tensor = sum(tensors) / len(tensors)
+        writer.save_tensor(tensor_name, avg_tensor.to(dtype=out_dtype), clone=merge_options.clone_tensors)
 
     for name_format in tqdm.tqdm(MISTRAL_INFO.layer_weight_formats()):
         for layer_idx in range(base_cfg.num_hidden_layers):
